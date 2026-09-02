@@ -3,8 +3,7 @@
 
 import os
 
-# Celery does not publish typing metadata.
-from celery import Celery  # type: ignore[import-untyped]
+from celery import Celery
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 

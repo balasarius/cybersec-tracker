@@ -23,6 +23,6 @@ Confirmed decisions are maintained in `DESIGN.md` section 2.3. Architecture deci
 | O-13 | Define evidence requirements and Critical second-review rules. | Stage 3 | Security/Risk | No for scaffold |
 | O-14 | Define recurrence thresholds and deadline treatment. | Stage 3 | Security/Risk | No for scaffold |
 | O-15 | Define exception clock, drafting, second approval, and expiry behaviour. | Stage 8 | Risk Executive | No |
-| O-16 | Define analyst visibility across sensitive business units. | Stage 2 | Security/Risk | No for scaffold; blocks RBAC completion |
+| O-16 | Define analyst visibility across sensitive business units. | Stage 2 | Security/Risk | Resolved 2026-09-03: senior Security roles may receive organisation-wide access, ordinary analysts use explicit business-unit grants, and sensitive units always require an explicit grant. |
 
 Unresolved choices use only the conservative defaults explicitly stated in the design. They must not be silently inferred during feature implementation.
