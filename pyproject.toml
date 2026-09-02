@@ -10,8 +10,11 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "Apache-2.0"
 dependencies = [
+  "argon2-cffi>=25.1,<26",
   "celery[redis]>=5.5,<5.6",
   "django>=5.2,<5.3",
+  "django-axes>=8,<9",
+  "django-otp>=1.6,<1.7",
   "djangorestframework>=3.17.2,<3.18",
   "gunicorn>=23,<24",
   "psycopg[binary]>=3.2,<3.3",
@@ -56,12 +59,15 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "config/settings.py" = ["S105"]
+"apps/*/migrations/*.py" = ["E501", "RUF012"]
+"apps/*/models.py" = ["RUF012"]
 "tests/**/*.py" = ["S106"]
 
 [tool.mypy]
 python_version = "3.13"
 plugins = ["mypy_django_plugin.main"]
 strict = true
+disable_error_code = ["import-untyped"]
 exclude = ["migrations"]
 
 [tool.django-stubs]
