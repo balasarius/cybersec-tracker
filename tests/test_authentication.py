@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Authentication hashing, recovery, throttling, and TOTP tests."""
 
+import html
 import re
 
 import pytest
@@ -149,7 +150,7 @@ def test_mfa_setup_confirms_device_and_shows_codes_once(client: Client) -> None:
     confirm = client.post("/accounts/mfa/setup/", {"action": "confirm", "token": str(token)})
 
     assert start.status_code == 200
-    assert device.config_url in start.content.decode()
+    assert html.escape(device.config_url) in start.content.decode()
     assert confirm.status_code == 200
     assert b"Save your recovery codes" in confirm.content
     assert RecoveryCode.objects.filter(user=user, used_at__isnull=True).count() == 10
