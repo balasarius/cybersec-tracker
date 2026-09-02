@@ -121,3 +121,26 @@ def verify_chain(*, organisation: Organisation) -> ChainVerification:
             return ChainVerification(False, checked, event.sequence)
         previous_hash = event.event_hash
     return ChainVerification(True, checked)
+
+
+def record_privileged_read(
+    *,
+    organisation: Organisation,
+    actor: User,
+    object_type: str,
+    object_id: str,
+    purpose: str,
+    export: bool = False,
+) -> AuditEvent:
+    """Record a sensitive read or export before returning protected content."""
+    if not purpose.strip():
+        raise ValueError("A purpose is required for privileged access")
+    return append_event(
+        organisation=organisation,
+        action="privileged.export" if export else "privileged.read",
+        object_type=object_type,
+        object_id=object_id,
+        actor=actor,
+        actor_label=actor.get_username(),
+        reason=purpose,
+    )

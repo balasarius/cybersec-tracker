@@ -10,7 +10,9 @@ from django.test import Client, override_settings
 from django_otp.oath import totp
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
-from apps.accounts.models import User
+from apps.accounts.models import RecoveryCode, User
+from apps.accounts.services import consume_recovery_code, replace_recovery_codes
+from apps.tenancy.models import MembershipRole, Organisation, OrganisationMembership
 
 pytestmark = pytest.mark.django_db
 
@@ -72,3 +74,102 @@ def test_repeated_login_failure_is_locked(client: Client) -> None:
     assert first.status_code == 200
     assert second.status_code == 429
     assert locked.status_code == 429
+
+
+def create_privileged_user(*, username: str) -> User:
+    user = User.objects.create_user(username=username, password="valid-pass")
+    organisation = Organisation.objects.create(name=f"Org {username}", slug=f"org-{username}")
+    OrganisationMembership.objects.create(
+        organisation=organisation, user=user, role=MembershipRole.SECURITY_ANALYST
+    )
+    return user
+
+
+def test_privileged_password_login_requires_enrollment_when_no_device(client: Client) -> None:
+    create_privileged_user(username="enrol")
+
+    response = client.post("/accounts/login/", {"username": "enrol", "password": "valid-pass"})
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/accounts/mfa/setup/")
+
+
+def test_privileged_password_login_requires_second_factor(client: Client) -> None:
+    user = create_privileged_user(username="second-factor")
+    device = TOTPDevice.objects.create(user=user, name="primary", confirmed=True)
+    token = totp(
+        device.bin_key,
+        step=device.step,
+        t0=device.t0,
+        digits=device.digits,
+        drift=device.drift,
+    )
+
+    password_response = client.post(
+        "/accounts/login/", {"username": "second-factor", "password": "valid-pass"}
+    )
+    verify_response = client.post("/accounts/mfa/verify/", {"token": str(token)})
+
+    assert password_response.status_code == 302
+    assert password_response.headers["Location"].endswith("/accounts/mfa/verify/")
+    assert verify_response.status_code == 302
+    assert verify_response.headers["Location"].endswith("/health/live")
+    assert client.session.get("otp_device_id") == device.persistent_id
+
+
+def test_mfa_preauth_session_is_discarded_after_bounded_failures(client: Client) -> None:
+    user = create_privileged_user(username="mfa-bounded")
+    TOTPDevice.objects.create(user=user, name="primary", confirmed=True)
+    client.post("/accounts/login/", {"username": "mfa-bounded", "password": "valid-pass"})
+
+    responses = [client.post("/accounts/mfa/verify/", {"token": "000000"}) for _ in range(5)]
+
+    assert all(response.status_code == 200 for response in responses[:4])
+    assert responses[-1].status_code == 302
+    assert responses[-1].headers["Location"].endswith("/accounts/login/")
+    assert "mfa_preauth_user_id" not in client.session
+
+
+def test_mfa_setup_confirms_device_and_shows_codes_once(client: Client) -> None:
+    user = create_privileged_user(username="setup")
+    client.force_login(user)
+    session = client.session
+    session["authorization_version"] = user.authorization_version
+    session.save()
+
+    start = client.post("/accounts/mfa/setup/", {"action": "start"})
+    device = TOTPDevice.objects.get(user=user, confirmed=False)
+    token = totp(
+        device.bin_key,
+        step=device.step,
+        t0=device.t0,
+        digits=device.digits,
+        drift=device.drift,
+    )
+    confirm = client.post("/accounts/mfa/setup/", {"action": "confirm", "token": str(token)})
+
+    assert start.status_code == 200
+    assert device.config_url in start.content.decode()
+    assert confirm.status_code == 200
+    assert b"Save your recovery codes" in confirm.content
+    assert RecoveryCode.objects.filter(user=user, used_at__isnull=True).count() == 10
+
+
+def test_recovery_code_is_hashed_and_single_use() -> None:
+    user = User.objects.create_user(username="recovery")
+
+    generated = replace_recovery_codes(user=user, count=1)
+    plaintext = generated.plaintext[0]
+    stored = RecoveryCode.objects.get(user=user)
+
+    assert plaintext not in stored.code_hash
+    assert consume_recovery_code(user=user, candidate=plaintext) is True
+    assert consume_recovery_code(user=user, candidate=plaintext) is False
+
+
+@pytest.mark.parametrize("count", [0, 21])
+def test_recovery_code_count_is_bounded(count: int) -> None:
+    user = User.objects.create_user(username=f"bounded-{count}")
+
+    with pytest.raises(ValueError, match="between 1 and 20"):
+        replace_recovery_codes(user=user, count=count)

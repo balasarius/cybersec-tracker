@@ -7,8 +7,9 @@ import pytest
 from django.db import DatabaseError, connection, transaction
 from django.test import Client
 
+from apps.accounts.models import User
 from apps.audit.models import AuditEvent
-from apps.audit.services import append_event, verify_chain
+from apps.audit.services import append_event, record_privileged_read, verify_chain
 from apps.tenancy.models import Organisation
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -113,3 +114,29 @@ def test_correlation_middleware_replaces_invalid_value(client: Client) -> None:
     response = client.get("/health/live", headers={"X-Correlation-ID": "not-a-uuid"})
 
     assert uuid.UUID(response.headers["X-Correlation-ID"])
+
+
+def test_privileged_read_requires_purpose_and_is_audited() -> None:
+    organisation = Organisation.objects.create(name="Read Org", slug="read-org")
+    actor = User.objects.create_user(username="reader")
+
+    with pytest.raises(ValueError, match="purpose"):
+        record_privileged_read(
+            organisation=organisation,
+            actor=actor,
+            object_type="evidence",
+            object_id="one",
+            purpose=" ",
+        )
+    event = record_privileged_read(
+        organisation=organisation,
+        actor=actor,
+        object_type="evidence",
+        object_id="one",
+        purpose="Investigating remediation",
+        export=True,
+    )
+
+    assert event.action == "privileged.export"
+    assert event.reason == "Investigating remediation"
+    assert event.actor == actor
