@@ -70,5 +70,5 @@ def test_repeated_login_failure_is_locked(client: Client) -> None:
     locked = client.post(login, {"username": "locked", "password": "valid-pass"})
 
     assert first.status_code == 200
-    assert second.status_code == 403
-    assert locked.status_code == 403
+    assert second.status_code == 429
+    assert locked.status_code == 429
