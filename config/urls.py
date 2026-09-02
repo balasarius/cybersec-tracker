@@ -10,6 +10,7 @@ from config import health
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/login/", account_views.login_view, name="login"),
+    path("accounts/logout/", account_views.logout_view, name="logout"),
     path("accounts/mfa/setup/", account_views.setup_mfa, name="mfa-setup"),
     path("accounts/mfa/verify/", account_views.verify_mfa, name="mfa-verify"),
     path("accounts/", include("django.contrib.auth.urls")),

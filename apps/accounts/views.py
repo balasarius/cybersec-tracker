@@ -4,6 +4,7 @@
 import uuid
 
 from django.contrib.auth import login as auth_login
+from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect, render
@@ -12,6 +13,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from apps.accounts.access import has_privileged_role
+from apps.accounts.audit import record_authentication_event
 from apps.accounts.forms import PasswordLoginForm, TokenForm
 from apps.accounts.models import User
 from apps.accounts.services import consume_recovery_code, replace_recovery_codes
@@ -32,6 +34,7 @@ def login_view(request: HttpRequest) -> HttpResponse:
     if request.method == "POST" and form.is_valid():
         user = form.get_user()
         assert isinstance(user, User)
+        record_authentication_event(user=user, action="authentication.password_accepted")
         if has_privileged_role(user=user):
             if TOTPDevice.objects.filter(user=user, confirmed=True).exists():
                 request.session.flush()
@@ -45,6 +48,11 @@ def login_view(request: HttpRequest) -> HttpResponse:
         auth_login(request, user)
         _record_session_version(request, user)
         return redirect("health-live")
+    if request.method == "POST":
+        username = request.POST.get("username", "")[:150]
+        failed_user = User.objects.filter(username=username).first()
+        if failed_user is not None:
+            record_authentication_event(user=failed_user, action="authentication.failed")
     return render(request, "registration/login.html", {"form": form})
 
 
@@ -73,6 +81,7 @@ def verify_mfa(request: HttpRequest) -> HttpResponse:
                 device = devices[0]
             otp_login(request, device)
             _record_session_version(request, user)
+            record_authentication_event(user=user, action="authentication.mfa_accepted")
             request.session.set_expiry(None)
             return redirect("health-live")
         attempts = int(request.session.get(MFA_ATTEMPTS_KEY, 0)) + 1
@@ -82,6 +91,15 @@ def verify_mfa(request: HttpRequest) -> HttpResponse:
             return redirect("login")
         form.add_error("token", "The authentication code was not accepted.")
     return render(request, "registration/mfa_verify.html", {"form": form})
+
+
+@require_http_methods(["POST"])
+def logout_view(request: HttpRequest) -> HttpResponse:
+    user = request.user
+    if isinstance(user, User) and user.is_authenticated:
+        record_authentication_event(user=user, action="authentication.logout")
+    auth_logout(request)
+    return redirect("login")
 
 
 @login_required
@@ -106,6 +124,7 @@ def setup_mfa(request: HttpRequest) -> HttpResponse:
             generated = replace_recovery_codes(user=user)
             otp_login(request, pending)
             _record_session_version(request, user)
+            record_authentication_event(user=user, action="authentication.mfa_enrolled")
             return render(
                 request,
                 "registration/mfa_recovery_codes.html",

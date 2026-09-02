@@ -12,7 +12,9 @@ from django_otp.oath import totp
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from apps.accounts.models import RecoveryCode, User
+from apps.accounts.recovery import reset_mfa
 from apps.accounts.services import consume_recovery_code, replace_recovery_codes
+from apps.audit.models import AuditEvent
 from apps.tenancy.models import MembershipRole, Organisation, OrganisationMembership
 
 pytestmark = pytest.mark.django_db
@@ -174,3 +176,61 @@ def test_recovery_code_count_is_bounded(count: int) -> None:
 
     with pytest.raises(ValueError, match="between 1 and 20"):
         replace_recovery_codes(user=user, count=count)
+
+
+def test_known_user_login_failure_is_audited_without_changing_response(client: Client) -> None:
+    user = create_privileged_user(username="audit-failure")
+
+    response = client.post("/accounts/login/", {"username": "audit-failure", "password": "wrong"})
+
+    assert response.status_code == 200
+    event = AuditEvent.objects.get(action="authentication.failed")
+    assert event.object_id == str(user.id)
+    assert event.actor is None
+
+
+def test_verified_security_admin_can_reset_another_users_mfa() -> None:
+    actor = User.objects.create_user(username="recovery-admin")
+    target = User.objects.create_user(username="recovery-target")
+    organisation = Organisation.objects.create(name="Recovery Org", slug="recovery-org")
+    OrganisationMembership.objects.create(
+        organisation=organisation, user=actor, role=MembershipRole.SECURITY_ADMIN
+    )
+    OrganisationMembership.objects.create(
+        organisation=organisation, user=target, role=MembershipRole.SECURITY_ANALYST
+    )
+    actor.is_verified = lambda: True  # type: ignore[attr-defined,method-assign]
+    TOTPDevice.objects.create(user=target, name="primary", confirmed=True)
+    replace_recovery_codes(user=target, count=2)
+    original_version = target.authorization_version
+
+    event = reset_mfa(
+        organisation=organisation,
+        actor=actor,
+        target=target,
+        reason="Identity verified by service desk",
+    )
+
+    assert TOTPDevice.objects.filter(user=target).exists() is False
+    assert RecoveryCode.objects.filter(user=target).exists() is False
+    assert target.authorization_version == original_version + 1
+    assert event.action == "authentication.mfa_reset"
+    assert event.reason == "Identity verified by service desk"
+
+
+def test_mfa_reset_rejects_self_service_and_unverified_admin() -> None:
+    actor = User.objects.create_user(username="recovery-denied")
+    target = User.objects.create_user(username="recovery-denied-target")
+    organisation = Organisation.objects.create(name="Denied Recovery", slug="denied-recovery")
+    OrganisationMembership.objects.create(
+        organisation=organisation, user=actor, role=MembershipRole.SECURITY_ADMIN
+    )
+    OrganisationMembership.objects.create(
+        organisation=organisation, user=target, role=MembershipRole.SECURITY_ANALYST
+    )
+    actor.is_verified = lambda: False  # type: ignore[attr-defined,method-assign]
+
+    with pytest.raises(PermissionError, match="own MFA"):
+        reset_mfa(organisation=organisation, actor=actor, target=actor, reason="self")
+    with pytest.raises(PermissionError, match="Verified Security administrator"):
+        reset_mfa(organisation=organisation, actor=actor, target=target, reason="help")

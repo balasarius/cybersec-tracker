@@ -39,7 +39,8 @@ def _digest(payload: dict[str, Any]) -> str:
 @transaction.atomic
 def append_event(
     *,
-    organisation: Organisation,
+    organisation: Organisation | None = None,
+    organisation_id: uuid.UUID | None = None,
     action: str,
     object_type: str,
     object_id: str,
@@ -51,6 +52,12 @@ def append_event(
     correlation_id: uuid.UUID | None = None,
 ) -> AuditEvent:
     """Append one deterministic event while holding the organisation chain lock."""
+    if organisation is None:
+        if organisation_id is None:
+            raise ValueError("Organisation or organisation_id is required")
+        organisation = Organisation.objects.get(pk=organisation_id)
+    elif organisation_id is not None and organisation.id != organisation_id:
+        raise ValueError("Organisation identifiers do not match")
     head, _ = AuditHead.objects.select_for_update().get_or_create(organisation=organisation)
     timestamp = occurred_at or timezone.now()
     correlation = correlation_id or current_correlation_id.get() or uuid.uuid4()
