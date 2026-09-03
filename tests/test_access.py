@@ -14,7 +14,12 @@ from apps.tenancy.models import (
     Organisation,
     OrganisationMembership,
 )
-from apps.tenancy.services import grant_business_unit, revoke_business_unit, set_membership_active
+from apps.tenancy.services import (
+    change_membership_role,
+    grant_business_unit,
+    revoke_business_unit,
+    set_membership_active,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -112,6 +117,37 @@ def test_delivery_owner_is_not_a_privileged_role_even_with_mfa() -> None:
     assert can_perform_privileged_action(user=user) is False
 
 
+def test_inactive_user_is_denied_before_membership_lookup() -> None:
+    user, membership, unit = create_scope(role=MembershipRole.SECURITY_ADMIN)
+    user.is_active = False
+    user.save(update_fields=("is_active",))
+
+    decision = can_access_business_unit(
+        user=user, organisation_id=membership.organisation_id, business_unit=unit
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "inactive_or_unauthenticated"
+    assert can_perform_privileged_action(user=user) is False
+
+
+def test_ordinary_analyst_needs_explicit_non_sensitive_grant() -> None:
+    user, membership, unit = create_scope(role=MembershipRole.SECURITY_ANALYST)
+
+    denied = can_access_business_unit(
+        user=user, organisation_id=membership.organisation_id, business_unit=unit
+    )
+    BusinessUnitGrant.objects.create(membership=membership, business_unit=unit)
+    allowed = can_access_business_unit(
+        user=user, organisation_id=membership.organisation_id, business_unit=unit
+    )
+
+    assert denied.reason == "business_unit_not_granted"
+    assert denied.allowed is False
+    assert allowed.reason == "explicit_business_unit_grant"
+    assert allowed.allowed is True
+
+
 def test_grant_and_revoke_invalidate_existing_authorization_version() -> None:
     user, membership, unit = create_scope(role=MembershipRole.SECURITY_ANALYST)
     original = user.authorization_version
@@ -146,3 +182,37 @@ def test_deactivating_membership_invalidates_existing_session(client: Client) ->
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/accounts/login/")
+
+
+def test_repeating_membership_and_grant_operations_are_noops() -> None:
+    user, membership, unit = create_scope(role=MembershipRole.SECURITY_ANALYST)
+    grant_business_unit(membership=membership, business_unit=unit)
+    version = user.authorization_version
+
+    grant_business_unit(membership=membership, business_unit=unit)
+    missing_revoke = revoke_business_unit(
+        membership=membership,
+        business_unit=BusinessUnit.objects.create(
+            organisation=membership.organisation, name="Missing", slug="missing"
+        ),
+    )
+    set_membership_active(membership=membership, active=True)
+
+    user.refresh_from_db()
+    assert user.authorization_version == version
+    assert missing_revoke is False
+
+
+def test_role_change_validates_role_and_invalidates_sessions() -> None:
+    user, membership, _unit = create_scope(role=MembershipRole.SECURITY_ANALYST)
+    original = user.authorization_version
+
+    change_membership_role(membership=membership, role=MembershipRole.SENIOR_SECURITY_ANALYST)
+    changed_version = user.authorization_version
+    change_membership_role(membership=membership, role=MembershipRole.SENIOR_SECURITY_ANALYST)
+
+    assert membership.role == MembershipRole.SENIOR_SECURITY_ANALYST
+    assert changed_version == original + 1
+    assert user.authorization_version == changed_version
+    with pytest.raises(ValueError, match="Unknown"):
+        change_membership_role(membership=membership, role="unknown")
