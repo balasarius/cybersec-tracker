@@ -21,6 +21,7 @@ from apps.tenancy.models import (
 
 pytestmark = pytest.mark.django_db
 REPORTED_AT = datetime(2026, 1, 1, tzinfo=UTC)
+NAIVE_REPORTED_AT = REPORTED_AT.replace(tzinfo=None)
 
 
 def security_context(
@@ -102,4 +103,49 @@ def test_manual_issue_rejects_cross_organisation_scope_and_empty_content() -> No
             description="Description",
             reported_at=REPORTED_AT,
             business_unit=other_unit,
+        )
+
+
+def test_manual_issue_rejects_naive_time_cross_org_asset_and_unit_mismatch() -> None:
+    organisation, unit, analyst, _membership = security_context()
+    other = Organisation.objects.create(name="Other asset org", slug="other-asset-org")
+    other_asset = Asset.objects.create(
+        organisation=other, asset_type=AssetType.HOST, canonical_name="other-host"
+    )
+    with pytest.raises(ValueError, match="timezone-aware"):
+        create_manual_issue(
+            organisation=organisation,
+            reporter=analyst,
+            title="Issue",
+            description="Description",
+            reported_at=NAIVE_REPORTED_AT,
+        )
+    with pytest.raises(ValueError, match="Asset and issue organisations"):
+        create_manual_issue(
+            organisation=organisation,
+            reporter=analyst,
+            title="Issue",
+            description="Description",
+            reported_at=REPORTED_AT,
+            asset=other_asset,
+        )
+
+    another_unit = BusinessUnit.objects.create(
+        organisation=organisation, name="Another", slug="another"
+    )
+    scoped_asset = Asset.objects.create(
+        organisation=organisation,
+        business_unit=unit,
+        asset_type=AssetType.HOST,
+        canonical_name="scoped-host",
+    )
+    with pytest.raises(ValueError, match="business units"):
+        create_manual_issue(
+            organisation=organisation,
+            reporter=analyst,
+            title="Issue",
+            description="Description",
+            reported_at=REPORTED_AT,
+            business_unit=another_unit,
+            asset=scoped_asset,
         )

@@ -167,3 +167,77 @@ def test_analyst_approves_resolution_with_audit() -> None:
     assert review.status == ResolutionStatus.RESOLVED
     event = AuditEvent.objects.get(action="asset.resolution_approved")
     assert event.reason == "CMDB confirmation"
+
+
+def test_resolution_approval_rejects_missing_reason_and_unverified_analyst() -> None:
+    organisation, source = context()
+    asset = Asset.objects.create(
+        organisation=organisation, asset_type=AssetType.HOST, canonical_name="review-host"
+    )
+    AssetAlias.objects.create(
+        organisation=organisation,
+        asset=asset,
+        source_account=source,
+        alias_type=AliasType.IP,
+        normalized_value="192.0.2.12",
+        context="",
+        first_seen_at=NOW,
+        last_seen_at=NOW,
+    )
+    review = resolve_asset(
+        source_account=source, alias_type=AliasType.IP, value="192.0.2.12"
+    ).review_case
+    assert review is not None
+    analyst = User.objects.create_user(username="unverified-asset-analyst")
+    OrganisationMembership.objects.create(
+        organisation=organisation, user=analyst, role=MembershipRole.SECURITY_ANALYST
+    )
+    analyst.is_verified = lambda: False  # type: ignore[attr-defined,method-assign]
+
+    with pytest.raises(ValueError, match="reason"):
+        approve_asset_resolution(review_case=review, asset=asset, analyst=analyst, reason=" ")
+    with pytest.raises(PermissionError, match="MFA-verified"):
+        approve_asset_resolution(
+            review_case=review, asset=asset, analyst=analyst, reason="Not verified"
+        )
+
+
+def test_resolution_approval_rejects_cross_org_and_closed_case() -> None:
+    organisation, source = context()
+    asset = Asset.objects.create(
+        organisation=organisation, asset_type=AssetType.HOST, canonical_name="review-host"
+    )
+    AssetAlias.objects.create(
+        organisation=organisation,
+        asset=asset,
+        source_account=source,
+        alias_type=AliasType.IP,
+        normalized_value="192.0.2.13",
+        context="",
+        first_seen_at=NOW,
+        last_seen_at=NOW,
+    )
+    review = resolve_asset(
+        source_account=source, alias_type=AliasType.IP, value="192.0.2.13"
+    ).review_case
+    assert review is not None
+    analyst = User.objects.create_user(username="cross-org-asset-analyst")
+    OrganisationMembership.objects.create(
+        organisation=organisation, user=analyst, role=MembershipRole.SECURITY_ADMIN
+    )
+    analyst.is_verified = lambda: True  # type: ignore[attr-defined,method-assign]
+    other = Organisation.objects.create(name="Other resolution", slug="other-resolution")
+    other_asset = Asset.objects.create(
+        organisation=other, asset_type=AssetType.HOST, canonical_name="other"
+    )
+
+    with pytest.raises(ValueError, match="organisations"):
+        approve_asset_resolution(
+            review_case=review, asset=other_asset, analyst=analyst, reason="Wrong org"
+        )
+    review.status = ResolutionStatus.DISMISSED
+    review.save(update_fields=("status",))
+    with pytest.raises(ValueError, match="no longer open"):
+        approve_asset_resolution(
+            review_case=review, asset=asset, analyst=analyst, reason="Already closed"
+        )

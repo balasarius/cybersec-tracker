@@ -27,6 +27,7 @@ from apps.integrations.services import canonical_payload_hash, store_raw_record
 from apps.tenancy.models import Organisation
 
 pytestmark = pytest.mark.django_db(transaction=True)
+NAIVE_TIME = datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None)
 
 
 def source_context() -> tuple[Organisation, SourceAccount, ImportRun]:
@@ -131,6 +132,35 @@ def test_store_raw_record_rejects_mismatched_run_and_empty_identity() -> None:
         )
 
 
+def test_store_raw_record_requires_aware_time_and_consistent_organisation() -> None:
+    organisation, source, run = source_context()
+    other_org = Organisation.objects.create(name="Other raw", slug="other-raw")
+    inconsistent_run = ImportRun.objects.create(
+        organisation=other_org,
+        source_account=source,
+        correlation_id=uuid.uuid4(),
+        status=ImportStatus.RUNNING,
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    with pytest.raises(ValueError, match="organisations"):
+        store_raw_record(
+            source_account=source,
+            import_run=inconsistent_run,
+            external_id="one",
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            payload={},
+        )
+    with pytest.raises(ValueError, match="timezone-aware"):
+        store_raw_record(
+            source_account=source,
+            import_run=run,
+            external_id="one",
+            observed_at=NAIVE_TIME,
+            payload={},
+        )
+
+
 def test_finding_upsert_preserves_first_seen_and_all_raw_versions() -> None:
     organisation, source, run = source_context()
     asset = Asset.objects.create(
@@ -216,3 +246,45 @@ def test_database_rejects_reversed_observation_range() -> None:
                 first_observed_at=datetime(2026, 1, 2, tzinfo=UTC),
                 last_observed_at=datetime(2026, 1, 1, tzinfo=UTC),
             )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"external_id": " "}, "external identifier"),
+        ({"title": " "}, "external identifier"),
+        ({"provider_severity": "impossible"}, "provider severity"),
+        ({"status": "impossible"}, "finding status"),
+        ({"observed_at": NAIVE_TIME}, "timezone-aware"),
+        ({"identifiers": (("bad-kind", "value"),)}, "identifier"),
+        ({"identifiers": ((IdentifierType.CVE, " "),)}, "identifier"),
+    ],
+)
+def test_finding_envelope_validation(changes: dict[str, object], message: str) -> None:
+    _organisation, source, run = source_context()
+    raw = store_raw_record(
+        source_account=source,
+        import_run=run,
+        external_id="finding-validate",
+        observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+        payload={},
+    ).record
+    values: dict[str, object] = {
+        "external_id": "finding-validate",
+        "title": "Title",
+        "description": "Description",
+        "remediation": "Fix",
+        "provider_severity": ProviderSeverity.HIGH,
+        "status": FindingStatus.ACTIVE,
+        "observed_at": datetime(2026, 1, 1, tzinfo=UTC),
+        "identifiers": (),
+    }
+    values.update(changes)
+
+    with pytest.raises(ValueError, match=message):
+        upsert_finding(
+            source_account=source,
+            raw_record=raw,
+            asset=None,
+            envelope=NormalizedFinding(**values),  # type: ignore[arg-type]
+        )
