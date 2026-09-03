@@ -14,7 +14,12 @@ from apps.tenancy.models import (
     Organisation,
     OrganisationMembership,
 )
-from apps.tenancy.services import grant_business_unit, revoke_business_unit, set_membership_active
+from apps.tenancy.services import (
+    change_membership_role,
+    grant_business_unit,
+    revoke_business_unit,
+    set_membership_active,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -196,3 +201,18 @@ def test_repeating_membership_and_grant_operations_are_noops() -> None:
     user.refresh_from_db()
     assert user.authorization_version == version
     assert missing_revoke is False
+
+
+def test_role_change_validates_role_and_invalidates_sessions() -> None:
+    user, membership, _unit = create_scope(role=MembershipRole.SECURITY_ANALYST)
+    original = user.authorization_version
+
+    change_membership_role(membership=membership, role=MembershipRole.SENIOR_SECURITY_ANALYST)
+    changed_version = user.authorization_version
+    change_membership_role(membership=membership, role=MembershipRole.SENIOR_SECURITY_ANALYST)
+
+    assert membership.role == MembershipRole.SENIOR_SECURITY_ANALYST
+    assert changed_version == original + 1
+    assert user.authorization_version == changed_version
+    with pytest.raises(ValueError, match="Unknown"):
+        change_membership_role(membership=membership, role="unknown")

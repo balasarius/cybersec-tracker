@@ -170,6 +170,15 @@ def test_recovery_code_is_hashed_and_single_use() -> None:
     assert consume_recovery_code(user=user, candidate=plaintext) is False
 
 
+def test_recovery_code_rejects_empty_oversized_and_nonmatching_values() -> None:
+    user = User.objects.create_user(username="recovery-invalid")
+    replace_recovery_codes(user=user, count=1)
+
+    assert consume_recovery_code(user=user, candidate="") is False
+    assert consume_recovery_code(user=user, candidate="x" * 129) is False
+    assert consume_recovery_code(user=user, candidate="not-a-code") is False
+
+
 @pytest.mark.parametrize("count", [0, 21])
 def test_recovery_code_count_is_bounded(count: int) -> None:
     user = User.objects.create_user(username=f"bounded-{count}")

@@ -9,7 +9,7 @@ from django.test import Client
 
 from apps.accounts.models import User
 from apps.audit.models import AuditEvent
-from apps.audit.services import append_event, record_privileged_read, verify_chain
+from apps.audit.services import append_event, record_privileged_read, redact, verify_chain
 from apps.tenancy.models import Organisation
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -59,6 +59,28 @@ def test_append_event_redacts_nested_secrets() -> None:
         "nested": {"password": "[REDACTED]", "result": "ok"},
     }
     assert verify_chain(organisation=organisation).valid is True
+
+
+def test_redaction_handles_lists_and_scalar_values() -> None:
+    assert redact([{"token": "secret"}, "safe"]) == [{"token": "[REDACTED]"}, "safe"]
+    assert redact(7) == 7
+
+
+def test_append_event_requires_one_consistent_organisation_identifier() -> None:
+    first = Organisation.objects.create(name="First audit org", slug="first-audit-org")
+    second = Organisation.objects.create(name="Second audit org", slug="second-audit-org")
+    common = {
+        "action": "test",
+        "object_type": "test",
+        "object_id": "one",
+        "actor": None,
+        "actor_label": "system",
+    }
+
+    with pytest.raises(ValueError, match="required"):
+        append_event(**common)
+    with pytest.raises(ValueError, match="do not match"):
+        append_event(organisation=first, organisation_id=second.id, **common)
 
 
 def test_model_and_queryset_reject_mutation() -> None:
