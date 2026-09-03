@@ -107,7 +107,7 @@ def test_manual_issue_rejects_cross_organisation_scope_and_empty_content() -> No
 
 
 def test_manual_issue_rejects_naive_time_cross_org_asset_and_unit_mismatch() -> None:
-    organisation, unit, analyst, _membership = security_context()
+    organisation, unit, analyst, membership = security_context()
     other = Organisation.objects.create(name="Other asset org", slug="other-asset-org")
     other_asset = Asset.objects.create(
         organisation=other, asset_type=AssetType.HOST, canonical_name="other-host"
