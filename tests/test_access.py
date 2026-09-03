@@ -2,6 +2,7 @@
 """Positive and negative tests for scoped business-unit access."""
 
 import pytest
+from django.test import Client
 
 from apps.accounts.access import can_perform_privileged_action
 from apps.accounts.models import User
@@ -13,6 +14,7 @@ from apps.tenancy.models import (
     Organisation,
     OrganisationMembership,
 )
+from apps.tenancy.services import grant_business_unit, revoke_business_unit, set_membership_active
 
 pytestmark = pytest.mark.django_db
 
@@ -108,3 +110,39 @@ def test_delivery_owner_is_not_a_privileged_role_even_with_mfa() -> None:
     user.is_verified = lambda: True  # type: ignore[attr-defined,method-assign]
 
     assert can_perform_privileged_action(user=user) is False
+
+
+def test_grant_and_revoke_invalidate_existing_authorization_version() -> None:
+    user, membership, unit = create_scope(role=MembershipRole.SECURITY_ANALYST)
+    original = user.authorization_version
+
+    grant_business_unit(membership=membership, business_unit=unit)
+    after_grant = user.authorization_version
+    revoked = revoke_business_unit(membership=membership, business_unit=unit)
+
+    assert after_grant == original + 1
+    assert revoked is True
+    assert user.authorization_version == original + 2
+
+
+def test_cross_organisation_grant_is_rejected() -> None:
+    _user, membership, _unit = create_scope(role=MembershipRole.SECURITY_ANALYST)
+    other = Organisation.objects.create(name="Grant Other", slug="grant-other")
+    other_unit = BusinessUnit.objects.create(organisation=other, name="Other", slug="other")
+
+    with pytest.raises(ValueError, match="same organisation"):
+        grant_business_unit(membership=membership, business_unit=other_unit)
+
+
+def test_deactivating_membership_invalidates_existing_session(client: Client) -> None:
+    user, membership, _unit = create_scope(role=MembershipRole.DELIVERY_OWNER)
+    client.force_login(user)
+    session = client.session
+    session["authorization_version"] = user.authorization_version
+    session.save()
+
+    set_membership_active(membership=membership, active=False)
+    response = client.get("/admin/")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/accounts/login/")

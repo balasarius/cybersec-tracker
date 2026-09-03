@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Recovery codes</title></head>
+  <body><main>
+    <h1>Save your recovery codes</h1>
+    <p>Each code works once. Store them securely; they will not be displayed again.</p>
+    <ul>{% for code in recovery_codes %}<li><code>{{ code }}</code></li>{% endfor %}</ul>
+    <p><a href="{% url 'health-live' %}">Continue</a></p>
+  </main></body>
+</html>

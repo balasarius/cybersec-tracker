@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Set up MFA</title></head>
+  <body><main>
+    <h1>Set up multi-factor authentication</h1>
+    {% if config_url %}
+      <p>Add this account to your authenticator using the following configuration URI. Treat it as a secret.</p>
+      <pre>{{ config_url }}</pre>
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="confirm">{{ form.as_p }}<button type="submit">Confirm authenticator</button></form>
+    {% else %}
+      <p>Privileged accounts must configure an authenticator before using the platform.</p>
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="start"><button type="submit">Begin setup</button></form>
+    {% endif %}
+  </main></body>
+</html>

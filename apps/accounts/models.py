@@ -3,6 +3,7 @@
 
 import uuid
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -12,6 +13,7 @@ class User(AbstractUser):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(blank=False)
+    authorization_version = models.PositiveBigIntegerField(default=1)
 
 
 class ExternalIdentity(models.Model):
@@ -29,3 +31,13 @@ class ExternalIdentity(models.Model):
                 fields=("provider", "subject"), name="accounts_external_identity_unique"
             )
         ]
+
+
+class RecoveryCode(models.Model):
+    """A hashed, single-use MFA recovery code."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    code_hash = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
