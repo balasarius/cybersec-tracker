@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from django.db import transaction
+from django.utils import timezone
 
 from apps.accounts.access import PRIVILEGED_ROLES, can_perform_privileged_action
 from apps.accounts.models import User
@@ -51,6 +52,8 @@ def _validate_envelope(envelope: NormalizedFinding) -> tuple[str, str]:
         raise ValueError("Unknown provider severity")
     if envelope.status not in FindingStatus.values:
         raise ValueError("Unknown finding status")
+    if not timezone.is_aware(envelope.observed_at):
+        raise ValueError("Finding observation timestamp must be timezone-aware")
     for identifier_type, value in envelope.identifiers:
         if identifier_type not in IdentifierType.values or not value.strip():
             raise ValueError("Invalid finding identifier")
@@ -156,6 +159,8 @@ def create_manual_issue(
     """Create a manual issue without silently converting it to a provider finding."""
     if not title.strip() or not description.strip():
         raise ValueError("Manual issue title and description are required")
+    if not timezone.is_aware(reported_at):
+        raise ValueError("Reported timestamp must be timezone-aware")
     membership_exists = OrganisationMembership.objects.filter(
         organisation=organisation, user=reporter, is_active=True, role__in=PRIVILEGED_ROLES
     ).exists()
@@ -170,6 +175,13 @@ def create_manual_issue(
             raise PermissionError("Reporter cannot access the business unit")
     if asset is not None and asset.organisation_id != organisation.id:
         raise ValueError("Asset and issue organisations do not match")
+    if (
+        asset is not None
+        and business_unit is not None
+        and asset.business_unit_id is not None
+        and asset.business_unit_id != business_unit.id
+    ):
+        raise ValueError("Asset and issue business units do not match")
     issue = ManualIssue.objects.create(
         organisation=organisation,
         business_unit=business_unit,

@@ -2,11 +2,25 @@
 """Source accounts, imports, and original provider records."""
 
 import uuid
+from collections.abc import Iterable
 from typing import Any
 
 from django.db import models
 
 from apps.tenancy.models import Organisation
+
+
+class RawSourceRecordQuerySet(models.QuerySet["RawSourceRecord"]):
+    def update(self, **kwargs: object) -> int:
+        raise TypeError("Raw source records are immutable")
+
+    def bulk_update(
+        self,
+        objs: Iterable["RawSourceRecord"],
+        fields: Iterable[str],
+        batch_size: int | None = None,
+    ) -> int:
+        raise TypeError("Raw source records are immutable")
 
 
 class SourceKind(models.TextChoices):
@@ -63,6 +77,7 @@ class RawSourceRecord(models.Model):
     observed_at = models.DateTimeField()
     received_at = models.DateTimeField(auto_now_add=True)
     payload = models.JSONField()
+    objects = RawSourceRecordQuerySet.as_manager()
 
     class Meta:
         constraints = [

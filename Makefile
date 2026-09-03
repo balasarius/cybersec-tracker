@@ -26,6 +26,8 @@ test:
 coverage:
 	uv run coverage run -m pytest
 	uv run coverage report
+	uv run coverage json -o coverage.json
+	uv run python scripts/check_coverage.py
 
 audit:
 	uv run pip-audit

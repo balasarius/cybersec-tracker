@@ -96,6 +96,8 @@ def test_raw_record_cannot_be_edited() -> None:
 
     with pytest.raises(TypeError, match="immutable"):
         stored.save()
+    with pytest.raises(TypeError, match="immutable"):
+        RawSourceRecord.objects.filter(pk=stored.pk).update(payload={"value": 3})
 
 
 def test_store_raw_record_rejects_mismatched_run_and_empty_identity() -> None:

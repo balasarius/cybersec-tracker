@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from django.db import transaction
+from django.utils import timezone
 
 from apps.integrations.models import ImportRun, RawSourceRecord, SourceAccount
 
@@ -42,6 +43,8 @@ def store_raw_record(
     normalized_external_id = external_id.strip()
     if not normalized_external_id:
         raise ValueError("A stable external identifier is required")
+    if not timezone.is_aware(observed_at):
+        raise ValueError("Observed timestamp must be timezone-aware")
     digest = canonical_payload_hash(payload)
     record, created = RawSourceRecord.objects.get_or_create(
         source_account=source_account,

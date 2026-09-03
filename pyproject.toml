@@ -41,7 +41,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["apps", "config", "connectors", "destination_adapters", "sdk"]
+source = ["apps", "config", "connectors", "destination_adapters", "scripts", "sdk"]
 omit = ["*/migrations/*", "manage.py"]
 
 [tool.coverage.report]
