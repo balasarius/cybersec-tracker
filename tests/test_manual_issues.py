@@ -68,7 +68,7 @@ def test_manual_issue_stays_separate_and_is_audited() -> None:
 
 
 def test_manual_issue_requires_verified_security_role() -> None:
-    organisation, unit, analyst, _membership = security_context()
+    organisation, unit, analyst, membership = security_context()
     analyst.is_verified = lambda: False  # type: ignore[attr-defined,method-assign]
 
     with pytest.raises(PermissionError, match="MFA-verified"):
@@ -133,6 +133,7 @@ def test_manual_issue_rejects_naive_time_cross_org_asset_and_unit_mismatch() -> 
     another_unit = BusinessUnit.objects.create(
         organisation=organisation, name="Another", slug="another"
     )
+    BusinessUnitGrant.objects.create(membership=membership, business_unit=another_unit)
     scoped_asset = Asset.objects.create(
         organisation=organisation,
         business_unit=unit,
