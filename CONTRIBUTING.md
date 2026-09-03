@@ -9,7 +9,7 @@ Requirements are Git, Docker with Compose, and optionally Python 3.13 with `uv` 
 ```bash
 cp .env.example .env
 docker compose build
-docker compose run --rm web uv run python manage.py migrate
+docker compose run --rm web python manage.py migrate
 docker compose up
 ```
 

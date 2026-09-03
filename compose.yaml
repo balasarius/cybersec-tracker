@@ -16,7 +16,7 @@ x-app: &app
 services:
   web:
     <<: *app
-    command: ["uv", "run", "python", "manage.py", "runserver", "0.0.0.0:8000"]
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     ports:
       - "8000:8000"
     healthcheck:
@@ -27,11 +27,21 @@ services:
 
   worker:
     <<: *app
-    command: ["uv", "run", "celery", "-A", "config", "worker", "--loglevel=INFO"]
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO"]
 
   beat:
     <<: *app
-    command: ["uv", "run", "celery", "-A", "config", "beat", "--loglevel=INFO"]
+    command:
+      [
+        "celery",
+        "-A",
+        "config",
+        "beat",
+        "--loglevel=INFO",
+        "--schedule=/var/lib/celery/celerybeat-schedule",
+      ]
+    volumes:
+      - celerybeat-data:/var/lib/celery
 
   db:
     image: postgres:17.6-alpine
@@ -73,3 +83,4 @@ volumes:
   postgres-data:
   redis-data:
   object-data:
+  celerybeat-data:

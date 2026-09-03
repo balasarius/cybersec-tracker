@@ -19,8 +19,14 @@ Install Git and Docker with Compose, then run:
 ```bash
 cp .env.example .env
 docker compose build
-docker compose run --rm web uv run python manage.py migrate
+docker compose run --rm web python manage.py migrate
 docker compose up
 ```
 
 Open <http://localhost:8000/health/ready>. See [CONTRIBUTING.md](CONTRIBUTING.md) for local Python checks and contribution requirements.
+
+If Docker itself reports permission denied while accessing its daemon socket, either use `sudo`
+for all `docker compose` commands or configure Docker access for your user according to your
+Docker installation. Membership of the conventional `docker` group grants root-equivalent host
+access and should be treated accordingly. The application containers still run as the unprivileged
+`tracker` user.
