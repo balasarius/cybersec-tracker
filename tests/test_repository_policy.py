@@ -45,3 +45,6 @@ def test_container_runtime_uses_immutable_build_environment() -> None:
     assert "uv sync --frozen --no-dev --no-editable" in dockerfile
     assert 'CMD ["uv", "run"' not in dockerfile
     assert '["uv", "run"' not in compose
+    assert "install -d -o tracker -g tracker -m 0750 /var/lib/celery" in dockerfile
+    assert '"--schedule=/var/lib/celery/celerybeat-schedule"' in compose
+    assert "celerybeat-data:/var/lib/celery" in compose

@@ -9,7 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
 RUN groupadd --system --gid 10001 tracker \
-    && useradd --system --uid 10001 --gid tracker --create-home tracker
+    && useradd --system --uid 10001 --gid tracker --create-home tracker \
+    && install -d -o tracker -g tracker -m 0750 /var/lib/celery
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.17 /uv /uvx /bin/
 WORKDIR /app
